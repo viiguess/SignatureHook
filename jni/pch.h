@@ -8,3 +8,4 @@
 #include <android/log.h>
 
 #include "Logging.h"
+#include <vector>

@@ -22,4 +22,6 @@ uintptr_t GetActualOffset(uintptr_t offset);
 // Modify bytes in libSrc.so
 bool ReplaceBytes(uintptr_t offset, const void* data, size_t size);
 // Find first pattern match; returns RVA from library base, or PATTERN_NOT_FOUND.
-size_t FindPattern(const uint8_t* pattern, const char* mask);
+size_t FindPattern(const uint8_t* pattern, const char* mask, size_t startOffset = 0);
+// Find all instances of the pattern & return the vector containing all RVAs of said instances
+std::vector<size_t> FindAllInstancesOf(const uint8_t* pattern, const char* mask);

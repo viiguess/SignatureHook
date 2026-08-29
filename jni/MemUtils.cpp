@@ -107,7 +107,9 @@ bool ReplaceBytes(uintptr_t offset, const void* data, size_t size)
     return true;
 }
 
-size_t FindPattern(const uint8_t* pattern, const char* mask)
+// Modified to support resuming a scan from a given RVA offset.
+// Existing callers that don't pass startOffset behave exactly as before.
+size_t FindPattern(const uint8_t* pattern, const char* mask, size_t startOffset)
 {
     if (!ResolveLibraryBounds("libSrc.so"))
         return PATTERN_NOT_FOUND;
@@ -128,7 +130,18 @@ size_t FindPattern(const uint8_t* pattern, const char* mask)
             continue;
 
         uintptr_t start = range.start;
-        for (size_t i = 0; i <= size - patternLength; ++i) {
+
+        // Skip this whole range if it lies entirely before startOffset.
+        uintptr_t rangeStartRVA = start - g_libAddress;
+        size_t scanBeginIndex = 0;
+        if (rangeStartRVA < startOffset) {
+            size_t skip = startOffset - rangeStartRVA;
+            if (skip >= size)
+                continue; // whole range already scanned
+            scanBeginIndex = skip;
+        }
+
+        for (size_t i = scanBeginIndex; i <= size - patternLength; ++i) {
             bool found = true;
             for (size_t j = 0; j < patternLength; ++j) {
                 if (mask[j] == 'x' &&
@@ -138,11 +151,38 @@ size_t FindPattern(const uint8_t* pattern, const char* mask)
                 }
             }
             if (found) {
-                // RVA from library base (same convention as the offline hex patcher).
-                return static_cast<size_t>((start + i) - g_libAddress);
+                size_t rva = static_cast<size_t>((start + i) - g_libAddress);
+                if (rva >= startOffset)
+                    return rva;
             }
         }
     }
 
     return PATTERN_NOT_FOUND;
+}
+
+// Repeatedly calls FindPattern, resuming just past each hit,
+// until no more matches are found. Returns every RVA where the pattern occurred.
+std::vector<size_t> FindAllInstancesOf(const uint8_t* pattern, const char* mask)
+{
+    std::vector<size_t> results;
+
+    size_t patternLength = strlen(mask);
+    if (patternLength == 0)
+        return results;
+
+    size_t searchFrom = 0;
+    while (true) {
+        size_t found = FindPattern(pattern, mask, searchFrom);
+        if (found == PATTERN_NOT_FOUND)
+            break;
+
+        results.push_back(found);
+
+        // Advance past this match to avoid re-finding the same spot.
+        // Use +1 instead of +patternLength if you want overlapping matches too.
+        searchFrom = found + patternLength;
+    }
+
+    return results;
 }
