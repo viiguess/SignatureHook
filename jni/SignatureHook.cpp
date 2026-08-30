@@ -263,6 +263,7 @@ static bool g_monitorStarted = false;
 static void* HooksMonitorThread(void* arg)
 {
     (void)arg;
+    // Wait until libSrc.so is mapped, then patch (idempotent if already patched).
     while (!ResolveLibraryBounds("libSrc.so")) {
         struct timespec ts = {0, 500 * 1000000L};
         nanosleep(&ts, nullptr);
@@ -294,6 +295,8 @@ JNIEXPORT void JNICALL
 Java_com_talkweb_securitypay_HookApplication_patchLibSrc(JNIEnv* env, jclass clazz) {
     (void)env;
     (void)clazz;
+    // Lib is already loaded by the activity — patch immediately, then keep a waiter
+    // for rare races / later remaps.
     AccountBindingBypass();
     EnsureMonitorThread();
 }

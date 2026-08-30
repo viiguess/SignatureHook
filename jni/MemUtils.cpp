@@ -160,7 +160,7 @@ bool ReplaceBytes(uintptr_t offset, const void* data, size_t size)
     return false;
 }
 
-size_t FindPattern(const uint8_t* pattern, const char* mask, size_t startOffset)
+size_t FindPattern(const uint8_t* pattern, const char* mask)
 {
     if (!ResolveLibraryBounds("libSrc.so"))
         return PATTERN_NOT_FOUND;
@@ -180,17 +180,7 @@ size_t FindPattern(const uint8_t* pattern, const char* mask, size_t startOffset)
             continue;
 
         uintptr_t start = range.start;
-
-        uintptr_t rangeStartRVA = start - g_libAddress;
-        size_t scanBeginIndex = 0;
-        if (rangeStartRVA < startOffset) {
-            size_t skip = startOffset - rangeStartRVA;
-            if (skip >= size)
-                continue;
-            scanBeginIndex = skip;
-        }
-
-        for (size_t i = scanBeginIndex; i <= size - patternLength; ++i) {
+        for (size_t i = 0; i <= size - patternLength; ++i) {
             bool found = true;
             for (size_t j = 0; j < patternLength; ++j) {
                 if (mask[j] == 'x' &&
@@ -200,33 +190,10 @@ size_t FindPattern(const uint8_t* pattern, const char* mask, size_t startOffset)
                 }
             }
             if (found) {
-                size_t rva = static_cast<size_t>((start + i) - g_libAddress);
-                if (rva >= startOffset)
-                    return rva;
+                return static_cast<size_t>((start + i) - g_libAddress);
             }
         }
     }
 
     return PATTERN_NOT_FOUND;
-}
-
-std::vector<size_t> FindAllInstancesOf(const uint8_t* pattern, const char* mask)
-{
-    std::vector<size_t> results;
-
-    size_t patternLength = strlen(mask);
-    if (patternLength == 0)
-        return results;
-
-    size_t searchFrom = 0;
-    while (true) {
-        size_t found = FindPattern(pattern, mask, searchFrom);
-        if (found == PATTERN_NOT_FOUND)
-            break;
-
-        results.push_back(found);
-        searchFrom = found + patternLength;
-    }
-
-    return results;
 }
