@@ -2,8 +2,14 @@
 #include <cerrno>
 #include <cstring>
 
+static bool g_accountBypassDone = false;
+
 void AccountBindingBypass()
 {
+	if (g_accountBypassDone) {
+		return;
+	}
+
 	const char* mask = "xxxx";
 #ifdef __arm__
 	// MOVW R0, #0x7562 ("bu" from channel "bui") — must be 47 F2 62 50, not 47 F2 00 50
@@ -17,6 +23,7 @@ void AccountBindingBypass()
 	if (!ReplaceBytes(foundPattern, &replaceValue, 4)) {
 		__android_log_print(ANDROID_LOG_ERROR, LIB_TAG, "AccountBindingBypass: 32-bit ReplaceBytes failed errno=%d", errno);
 	} else {
+		g_accountBypassDone = true;
 		__android_log_print(ANDROID_LOG_INFO, LIB_TAG, "AccountBindingBypass: 32-bit patched @0x%zx", (size_t)foundPattern);
 	}
 #elif defined __aarch64__
@@ -31,6 +38,7 @@ void AccountBindingBypass()
 	if (!ReplaceBytes(foundPattern, &replaceValue, 4)) {
 		__android_log_print(ANDROID_LOG_ERROR, LIB_TAG, "AccountBindingBypass: 64-bit ReplaceBytes failed errno=%d", errno);
 	} else {
+		g_accountBypassDone = true;
 		__android_log_print(ANDROID_LOG_INFO, LIB_TAG, "AccountBindingBypass: 64-bit patched @0x%zx", (size_t)foundPattern);
 	}
 #endif

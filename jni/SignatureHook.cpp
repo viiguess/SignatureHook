@@ -263,14 +263,11 @@ static bool g_monitorStarted = false;
 static void* HooksMonitorThread(void* arg)
 {
     (void)arg;
-    while (!ResolveLibraryBounds("libSrc"))
-    {
-        struct timespec ts = { 0, 500 * 1000000L };
+    while (!ResolveLibraryBounds("libSrc.so")) {
+        struct timespec ts = {0, 500 * 1000000L};
         nanosleep(&ts, nullptr);
     }
-
     HooksInit();
-
     return nullptr;
 }
 
@@ -297,6 +294,7 @@ JNIEXPORT void JNICALL
 Java_com_talkweb_securitypay_HookApplication_patchLibSrc(JNIEnv* env, jclass clazz) {
     (void)env;
     (void)clazz;
+    AccountBindingBypass();
     EnsureMonitorThread();
 }
 

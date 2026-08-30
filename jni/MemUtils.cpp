@@ -1,10 +1,21 @@
 #include "MemUtils.h"
 #include <unistd.h>
 #include <sys/mman.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <cstring>
 #include <cstdlib>
 #include <cinttypes>
 #include <vector>
+#include <android/log.h>
+#include "Logging.h"
+
+#ifndef MREMAP_MAYMOVE
+#define MREMAP_MAYMOVE 1
+#endif
+#ifndef MREMAP_FIXED
+#define MREMAP_FIXED 2
+#endif
 
 extern "C" void __clear_cache(void* beg, void* end);
 
@@ -15,6 +26,7 @@ struct MapRange {
     uintptr_t start = 0;
     uintptr_t end = 0;
     bool readable = false;
+    bool executable = false;
 };
 
 static std::vector<MapRange> g_libRanges;
@@ -41,8 +53,6 @@ bool ResolveLibraryBounds(const char* libName)
 
         uintptr_t start = 0, end = 0;
         char perms[8] = {};
-        // e.g. 7a00000000-7a01000000 r-xp 00000000 ...
-        // PRIxPTR-width scan: %lx is wrong for 32-bit uintptr_t
         if (sscanf(line, "%" SCNxPTR "-%" SCNxPTR " %7s", &start, &end, perms) < 2)
             continue;
 
@@ -54,6 +64,7 @@ bool ResolveLibraryBounds(const char* libName)
         r.start = start;
         r.end = end;
         r.readable = (perms[0] == 'r');
+        r.executable = (perms[2] == 'x');
         ranges.push_back(r);
     }
 
@@ -74,41 +85,81 @@ uintptr_t GetActualOffset(uintptr_t offset)
     return g_libAddress + offset;
 }
 
-bool ReplaceBytes(uintptr_t offset, const void* data, size_t size)
+static void BarrierICache(void* addr, size_t size)
 {
-    uintptr_t addr = GetActualOffset(offset);
-    size_t pagesize = sysconf(_SC_PAGESIZE);
-
-    uintptr_t pageStart = addr & ~(pagesize - 1);
-    uintptr_t pageEnd = (addr + size + pagesize - 1) & ~(pagesize - 1);
-    size_t totalSize = pageEnd - pageStart;
-
-    // Android often rejects RWX in one shot — use RW, write, then RX.
-    if (mprotect((void*)pageStart, totalSize, PROT_READ | PROT_WRITE) != 0) {
-        return false;
-    }
-
-    memcpy((void*)addr, data, size);
-    __clear_cache((char*)addr, (char*)addr + size);
-
+    __clear_cache(reinterpret_cast<char*>(addr), reinterpret_cast<char*>(addr) + size);
 #if defined(__aarch64__) || defined(__arm__)
     __asm__ __volatile__("dmb ish" ::: "memory");
     __asm__ __volatile__("isb" ::: "memory");
 #endif
+}
 
-    if (mprotect((void*)pageStart, totalSize, PROT_READ | PROT_EXEC) != 0) {
+/**
+ * Replace one page with an anonymous RX copy (patched).
+ * Required on Samsung/Android where APK-backed RX pages reject mprotect(WRITE)
+ * or reject restoring PROT_EXEC after a temporary RW change.
+ */
+static bool ReplaceBytesViaRemap(uintptr_t addr, const void* data, size_t size)
+{
+    size_t pagesize = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+    uintptr_t pageStart = addr & ~(pagesize - 1);
+    size_t pageOff = static_cast<size_t>(addr - pageStart);
+    if (pageOff + size > pagesize) {
+        __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
+                            "ReplaceBytesViaRemap: patch crosses page boundary");
         return false;
     }
 
-#if defined(__aarch64__) || defined(__arm__)
-    __asm__ __volatile__("isb" ::: "memory");
-#endif
+    void* copy = mmap(nullptr, pagesize, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (copy == MAP_FAILED) {
+        __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
+                            "ReplaceBytesViaRemap: mmap copy failed errno=%d", errno);
+        return false;
+    }
 
+    memcpy(copy, reinterpret_cast<void*>(pageStart), pagesize);
+    memcpy(reinterpret_cast<char*>(copy) + pageOff, data, size);
+
+    if (mprotect(copy, pagesize, PROT_READ | PROT_EXEC) != 0) {
+        if (mprotect(copy, pagesize, PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
+            __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
+                                "ReplaceBytesViaRemap: mprotect RX/RWX failed errno=%d", errno);
+            munmap(copy, pagesize);
+            return false;
+        }
+    }
+
+    void* remapped = mremap(copy, pagesize, pagesize,
+                            MREMAP_MAYMOVE | MREMAP_FIXED,
+                            reinterpret_cast<void*>(pageStart));
+    if (remapped == MAP_FAILED) {
+        __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
+                            "ReplaceBytesViaRemap: mremap FIXED failed errno=%d", errno);
+        munmap(copy, pagesize);
+        return false;
+    }
+
+    BarrierICache(reinterpret_cast<void*>(addr), size);
+    __android_log_print(ANDROID_LOG_INFO, LIB_TAG,
+                        "ReplaceBytesViaRemap: OK page @%p",
+                        reinterpret_cast<void*>(pageStart));
     return true;
 }
 
-// Modified to support resuming a scan from a given RVA offset.
-// Existing callers that don't pass startOffset behave exactly as before.
+bool ReplaceBytes(uintptr_t offset, const void* data, size_t size)
+{
+    uintptr_t addr = GetActualOffset(offset);
+
+    if (ReplaceBytesViaRemap(addr, data, size)) {
+        return true;
+    }
+
+    __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
+                        "ReplaceBytes: all strategies failed errno=%d", errno);
+    return false;
+}
+
 size_t FindPattern(const uint8_t* pattern, const char* mask, size_t startOffset)
 {
     if (!ResolveLibraryBounds("libSrc.so"))
@@ -118,9 +169,8 @@ size_t FindPattern(const uint8_t* pattern, const char* mask, size_t startOffset)
     if (patternLength == 0)
         return PATTERN_NOT_FOUND;
 
-    // Only scan readable mappings — crossing ---p gaps SIGSEGVs the init thread.
     for (const MapRange& range : g_libRanges) {
-        if (!range.readable)
+        if (!range.readable || !range.executable)
             continue;
         if (range.end <= range.start)
             continue;
@@ -131,13 +181,12 @@ size_t FindPattern(const uint8_t* pattern, const char* mask, size_t startOffset)
 
         uintptr_t start = range.start;
 
-        // Skip this whole range if it lies entirely before startOffset.
         uintptr_t rangeStartRVA = start - g_libAddress;
         size_t scanBeginIndex = 0;
         if (rangeStartRVA < startOffset) {
             size_t skip = startOffset - rangeStartRVA;
             if (skip >= size)
-                continue; // whole range already scanned
+                continue;
             scanBeginIndex = skip;
         }
 
@@ -161,8 +210,6 @@ size_t FindPattern(const uint8_t* pattern, const char* mask, size_t startOffset)
     return PATTERN_NOT_FOUND;
 }
 
-// Repeatedly calls FindPattern, resuming just past each hit,
-// until no more matches are found. Returns every RVA where the pattern occurred.
 std::vector<size_t> FindAllInstancesOf(const uint8_t* pattern, const char* mask)
 {
     std::vector<size_t> results;
@@ -178,9 +225,6 @@ std::vector<size_t> FindAllInstancesOf(const uint8_t* pattern, const char* mask)
             break;
 
         results.push_back(found);
-
-        // Advance past this match to avoid re-finding the same spot.
-        // Use +1 instead of +patternLength if you want overlapping matches too.
         searchFrom = found + patternLength;
     }
 
