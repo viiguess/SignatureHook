@@ -15,6 +15,8 @@
 inline constexpr size_t PATTERN_NOT_FOUND = static_cast<size_t>(-1);
 
 extern uintptr_t g_libAddress;
+/** Clear cached /proc/self/maps state so the next resolve re-reads mappings. */
+void ResetLibraryBounds();
 // Get base address of a library (.so) loaded in memory.
 bool ResolveLibraryBounds(const char* libName);
 // Get actual offset of address inside libSrc.so

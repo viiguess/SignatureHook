@@ -1,9 +1,11 @@
 #pragma once
+#include <jni.h>
 #include <memory>
 #include <pthread.h>
-#include "Hooks.h"
+#include <string>
 #include <thread>
 #include <chrono>
+#include "Hooks.h"
 #include "MemUtils.h"
 
 static JavaVM* g_vm = nullptr;

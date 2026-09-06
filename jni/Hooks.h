@@ -1,3 +1,3 @@
 #pragma once
 void HooksInit();
-void AccountBindingBypass();
+bool AccountBindingBypass();
