@@ -19,7 +19,7 @@ From the repository root, run the ndk-build script located in your NDK installat
    ```
 
 3. Copy `smali` folder into the decoded APK folder.
-4. Set the manifest's `<application android:name>` to `com.talkweb.securitypay.HookApplication`.
+4. Set the manifest's `<application android:name>` to `com.talkweb.securitypay.HookApplication` in `AndroidManifest.xml`.
 5. Add a call to `patchLibSrc()` at each libSrc loading point in `com/popcap/pvz2cthddev/SexyAppFrameworkActivity.smali`:
 
    ```smali
