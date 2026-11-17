@@ -263,11 +263,7 @@ static bool g_monitorStarted = false;
 static void* HooksMonitorThread(void* arg)
 {
     (void)arg;
-    // Retry for a while: covers late maps, XOM, and hot-update remaps.
     for (int i = 0; i < 40; ++i) {
-        if (AccountBindingBypass()) {
-            return nullptr;
-        }
         struct timespec ts = {0, 500 * 1000000L};
         nanosleep(&ts, nullptr);
     }
@@ -298,9 +294,6 @@ JNIEXPORT void JNICALL
 Java_com_talkweb_securitypay_HookApplication_patchLibSrc(JNIEnv* env, jclass clazz) {
     (void)env;
     (void)clazz;
-    // Lib is already loaded by the activity — patch immediately, then keep a waiter
-    // for rare races / later remaps.
-    AccountBindingBypass();
     EnsureMonitorThread();
 }
 

@@ -115,27 +115,22 @@ static bool ReplaceBytesViaRemap(uintptr_t addr, const void* data, size_t size)
     uintptr_t pageStart = addr & ~(pagesize - 1);
     size_t pageOff = static_cast<size_t>(addr - pageStart);
     if (pageOff + size > pagesize) {
-        __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
-                            "ReplaceBytesViaRemap: patch crosses page boundary");
+        LOGE("ReplaceBytesViaRemap: patch crosses page boundary");
         return false;
     }
 
     void* copy = mmap(nullptr, pagesize, PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (copy == MAP_FAILED) {
-        __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
-                            "ReplaceBytesViaRemap: mmap copy failed errno=%d", errno);
+        LOGE("ReplaceBytesViaRemap: mmap copy failed errno=%d", errno);
         return false;
     }
 
     // Execute-only (--x) pages cannot be read; temporarily allow READ for the copy.
     if (mprotect(reinterpret_cast<void*>(pageStart), pagesize, PROT_READ | PROT_EXEC) != 0) {
-        if (mprotect(reinterpret_cast<void*>(pageStart), pagesize,
-                     PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
+        if (mprotect(reinterpret_cast<void*>(pageStart), pagesize, PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
             // Still try the copy — page may already be readable (r-xp).
-            __android_log_print(ANDROID_LOG_WARN, LIB_TAG,
-                                "ReplaceBytesViaRemap: source mprotect READ failed errno=%d (trying copy anyway)",
-                                errno);
+            LOGW("ReplaceBytesViaRemap: source mprotect READ failed errno=%d (trying copy anyway)", errno);
         }
     }
 
@@ -144,27 +139,21 @@ static bool ReplaceBytesViaRemap(uintptr_t addr, const void* data, size_t size)
 
     if (mprotect(copy, pagesize, PROT_READ | PROT_EXEC) != 0) {
         if (mprotect(copy, pagesize, PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
-            __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
-                                "ReplaceBytesViaRemap: mprotect RX/RWX failed errno=%d", errno);
+            LOGE("ReplaceBytesViaRemap: mprotect RX/RWX failed errno=%d", errno);
             munmap(copy, pagesize);
             return false;
         }
     }
 
-    void* remapped = mremap(copy, pagesize, pagesize,
-                            MREMAP_MAYMOVE | MREMAP_FIXED,
-                            reinterpret_cast<void*>(pageStart));
+    void* remapped = mremap(copy, pagesize, pagesize, MREMAP_MAYMOVE | MREMAP_FIXED, reinterpret_cast<void*>(pageStart));
     if (remapped == MAP_FAILED) {
-        __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
-                            "ReplaceBytesViaRemap: mremap FIXED failed errno=%d", errno);
+        LOGE("ReplaceBytesViaRemap: mremap FIXED failed errno=%d", errno);
         munmap(copy, pagesize);
         return false;
     }
 
     BarrierICache(reinterpret_cast<void*>(addr), size);
-    __android_log_print(ANDROID_LOG_INFO, LIB_TAG,
-                        "ReplaceBytesViaRemap: OK page @%p",
-                        reinterpret_cast<void*>(pageStart));
+    LOGi("ReplaceBytesViaRemap: OK page @%p", reinterpret_cast<void*>(pageStart));
     return true;
 }
 
@@ -176,8 +165,7 @@ bool ReplaceBytes(uintptr_t offset, const void* data, size_t size)
         return true;
     }
 
-    __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
-                        "ReplaceBytes: all strategies failed errno=%d", errno);
+    LOGE("ReplaceBytes: all strategies failed errno=%d", errno);
     return false;
 }
 
@@ -195,8 +183,7 @@ static bool MatchAt(uintptr_t addr, const uint8_t* pattern, const char* mask, si
 /**
  * Scan one mapped range for the pattern. Returns RVA from g_libAddress, or PATTERN_NOT_FOUND.
  */
-static size_t ScanRange(const MapRange& range, const uint8_t* pattern, const char* mask,
-                        size_t patternLength)
+static size_t ScanRange(const MapRange& range, const uint8_t* pattern, const char* mask, size_t patternLength)
 {
     if (range.end <= range.start)
         return PATTERN_NOT_FOUND;
@@ -243,9 +230,7 @@ static size_t PreferExecutableRva(size_t hitRva)
         if (fileOff >= range.fileOffset && rel < (range.end - range.start)) {
             uintptr_t execVa = range.start + rel;
             size_t execRva = static_cast<size_t>(execVa - g_libAddress);
-            __android_log_print(ANDROID_LOG_INFO, LIB_TAG,
-                                "FindPattern: remapped r-- hit file+0x%zx -> exec RVA 0x%zx",
-                                (size_t)fileOff, execRva);
+            LOGi("FindPattern: remapped r-- hit file+0x%zx -> exec RVA 0x%zx", (size_t)fileOff, execRva);
             return execRva;
         }
     }
@@ -256,8 +241,7 @@ size_t FindPattern(const uint8_t* pattern, const char* mask)
 {
     ResetLibraryBounds();
     if (!ResolveLibraryBounds("libSrc.so")) {
-        __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
-                            "FindPattern: libSrc.so not mapped");
+        LOGE("FindPattern: libSrc.so not mapped");
         return PATTERN_NOT_FOUND;
     }
 
@@ -298,9 +282,7 @@ size_t FindPattern(const uint8_t* pattern, const char* mask)
             continue;
         size_t size = range.end - range.start;
         if (mprotect(reinterpret_cast<void*>(range.start), size, PROT_READ | PROT_EXEC) != 0) {
-            __android_log_print(ANDROID_LOG_WARN, LIB_TAG,
-                                "FindPattern: mprotect READ|EXEC failed @%p errno=%d",
-                                reinterpret_cast<void*>(range.start), errno);
+            LOGW("FindPattern: mprotect READ|EXEC failed @%p errno=%d", reinterpret_cast<void*>(range.start), errno);
             continue;
         }
         range.readable = true;
@@ -309,8 +291,6 @@ size_t FindPattern(const uint8_t* pattern, const char* mask)
             return hit;
     }
 
-    __android_log_print(ANDROID_LOG_ERROR, LIB_TAG,
-                        "FindPattern: no match (ranges=%zu readable=%d exec=%d)",
-                        g_libRanges.size(), readableCount, execCount);
+    LOGE("FindPattern: no match (ranges=%zu readable=%d exec=%d)", g_libRanges.size(), readableCount, execCount);
     return PATTERN_NOT_FOUND;
 }
