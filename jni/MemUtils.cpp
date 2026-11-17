@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cinttypes>
 #include <vector>
+#include <algorithm>
 #include <android/log.h>
 #include "Logging.h"
 
@@ -235,6 +236,45 @@ static size_t PreferExecutableRva(size_t hitRva)
         }
     }
     return hitRva;
+}
+
+std::vector<size_t> FindAllInstancesOf(const uint8_t* pattern, const char* mask)
+{
+    std::vector<size_t> matches;
+    ResetLibraryBounds();
+    if (!ResolveLibraryBounds("libSrc.so")) {
+        LOGE("FindAllInstancesOf: libSrc.so not mapped");
+        return matches;
+    }
+
+    const size_t patternLength = strlen(mask);
+    if (patternLength == 0)
+        return matches;
+
+    for (MapRange& range : g_libRanges) {
+        if (range.end <= range.start)
+            continue;
+        const size_t size = range.end - range.start;
+        if (patternLength > size)
+            continue;
+        if (!range.readable) {
+            if (!range.executable)
+                continue;
+            if (mprotect(reinterpret_cast<void*>(range.start), size, PROT_READ | PROT_EXEC) != 0) {
+                LOGW("FindAllInstancesOf: mprotect READ|EXEC failed @%p errno=%d", reinterpret_cast<void*>(range.start), errno);
+                continue;
+            }
+            range.readable = true;
+        }
+        for (size_t i = 0; i <= size - patternLength; ++i) {
+            if (MatchAt(range.start + i, pattern, mask, patternLength)) {
+                matches.push_back(PreferExecutableRva(static_cast<size_t>(range.start + i - g_libAddress)));
+            }
+        }
+    }
+    std::sort(matches.begin(), matches.end());
+    matches.erase(std::unique(matches.begin(), matches.end()), matches.end());
+    return matches;
 }
 
 size_t FindPattern(const uint8_t* pattern, const char* mask)

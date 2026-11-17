@@ -267,7 +267,7 @@ static void* HooksMonitorThread(void* arg)
         struct timespec ts = {0, 500 * 1000000L};
         nanosleep(&ts, nullptr);
     }
-    AccountBindingBypass();
+    HooksInit();
     return nullptr;
 }
 
