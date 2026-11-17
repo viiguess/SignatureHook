@@ -1,6 +1,6 @@
 # SignatureHook
 
-Library project for PvZ2 Chinese Version with a Signature Verification bypss and pattern-based patches for `libSrc.so` that are applied at runtime. The patches are pattern based to escape changing the offset every time the new version of the game is released or when libSrc is updated through hot-update.
+Library project for PvZ2 Chinese Version with a Signature Verification bypss and pattern-based patches for `libSrc.so` that are applied at runtime. The patches are pattern based to escape changing the hook offsets every time the new version of the game is released or when libSrc is updated through hot-update.
 
 ## Build
 
