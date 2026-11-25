@@ -154,7 +154,7 @@ static bool ReplaceBytesViaRemap(uintptr_t addr, const void* data, size_t size)
     }
 
     BarrierICache(reinterpret_cast<void*>(addr), size);
-    LOGi("ReplaceBytesViaRemap: OK page @%p", reinterpret_cast<void*>(pageStart));
+    LOGI("ReplaceBytesViaRemap: OK page @%p", reinterpret_cast<void*>(pageStart));
     return true;
 }
 
@@ -231,7 +231,7 @@ static size_t PreferExecutableRva(size_t hitRva)
         if (fileOff >= range.fileOffset && rel < (range.end - range.start)) {
             uintptr_t execVa = range.start + rel;
             size_t execRva = static_cast<size_t>(execVa - g_libAddress);
-            LOGi("FindPattern: remapped r-- hit file+0x%zx -> exec RVA 0x%zx", (size_t)fileOff, execRva);
+            LOGI("FindPattern: remapped r-- hit file+0x%zx -> exec RVA 0x%zx", (size_t)fileOff, execRva);
             return execRva;
         }
     }

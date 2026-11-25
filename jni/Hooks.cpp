@@ -90,6 +90,7 @@ bool SetMaxBoardRenderScale()
 		}
 	}
 	g_boardRenderScaleDone = true;
+	return true;
 #else
 	return false;
 #endif

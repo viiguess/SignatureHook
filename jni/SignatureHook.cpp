@@ -165,10 +165,10 @@ jobject HookApplicationWrapper::invoke(JNIEnv* env, jobject proxy, jobject metho
         std::string argPkgNameStr(pkgNameChars);
         env->ReleaseStringUTFChars((jstring)argPkgName, pkgNameChars);
 
-        jclass integerCls = env->FindClass("java/lang/Integer");
-        jmethodID intValueMethod = env->GetMethodID(integerCls, "intValue", "()I");
-        jint flags = env->CallIntMethod(argFlags, intValueMethod);
-        env->DeleteLocalRef(integerCls);
+        jclass numberCls = env->FindClass("java/lang/Number"); // Integer before Android 13, Long after
+        jmethodID longValueMethod = env->GetMethodID(numberCls, "longValue", "()J");
+        jlong flags = env->CallLongMethod(argFlags, longValueMethod);
+        env->DeleteLocalRef(numberCls);
 
         if ((flags & GET_SIGNATURES) == 0) {
             goto default_invoke;
